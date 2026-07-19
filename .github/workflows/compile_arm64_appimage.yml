@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  FLUTTER_VERSION: "3.41.9"
+  FLUTTER_VERSION: "3.24.5"
 
 jobs:
   build:
@@ -13,7 +13,7 @@ jobs:
       version: ${{ steps.get_version.outputs.version }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Get version from pubspec.yaml
         id: get_version
@@ -28,7 +28,7 @@ jobs:
     runs-on: [self-hosted, linux, arm64]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
@@ -58,7 +58,7 @@ jobs:
           cp app/assets/img/logo-256.png AppDir/usr/share/icons/hicolor/256x256/apps/localsend.png
 
       - name: Copy Recipe to correct location
-        run: cp support/build/appimage/AppImageBuilder_arm_64.yml AppImageBuilder.yml
+        run: cp scripts/appimage/AppImageBuilder_arm_64.yml AppImageBuilder.yml
 
       - name: Build AppImage
         uses: AppImageCrafters/build-appimage@57c3bc6963f870ce3be103117de5b5e33ffbaeb6
@@ -66,7 +66,7 @@ jobs:
           recipe: ./AppImageBuilder.yml
 
       - name: Upload AppImage file
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: appimage-arm-64-result
           path: ./*.AppImage

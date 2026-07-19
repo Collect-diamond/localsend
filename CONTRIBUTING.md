@@ -11,9 +11,8 @@ If you're interested in contributing code to LocalSend, you'll need to follow th
 After you have installed [Flutter](https://flutter.dev), then you can start this app by typing the following commands:
 
 ```shell
-cd app
 flutter pub get
-dart run build_runner build -d
+flutter pub run build_runner build -d
 flutter run
 ```
 
@@ -27,10 +26,9 @@ You can help in translating this app to other languages!
    - Fix existing translations: Update `strings_<locale>.i18n.json` in [assets/i18n](https://github.com/localsend/localsend/tree/main/app/assets/i18n)
    - Add new languages: Create a new file, see also: [locale codes](https://saimana.com/list-of-country-locale-code/).
 3. Optional: Re-run this app
-   1. Run `cd app` to enter the app directory.
-   2. Make sure you have [run](#run) this app once.
-   3. Update translations via `flutter pub run slang`
-   4. Run the app via `flutter run`
+   1. Make sure you have [run](#run) this app once.
+   2. Update translations via `flutter pub run slang`
+   3. Run the app via `flutter run`
 4. Open a pull request
 
 **_Take note:_ Fields decorated with `@` are not meant to be translated, they are not used in the app in any way, being merely informative text about the file or to give context to the translator.**
@@ -153,16 +151,16 @@ buildTypes {
 
 ### Bump Flutter
 
-Suppose we want to update flutter to `3.41.9`:
+Suppose we want to update flutter to `3.7.8` (see https://github.com/localsend/localsend/commit/7b95a7a5600db2742a9e05b956d0415d871239d5):
 
-1. Update flutter from fvm: `fvm use 3.41.9`
+1. Update flutter from fvm: `fvm use 3.7.8`
 2. Update flutter from submodule:
    1. `git submodule update --init`
-   2. `cd support/submodules/flutter`
+   2. `cd submodules/flutter`
    3. `git fetch`
-   4. `git checkout 3.41.9`
-   5. `cd ../../..`
-   6. `git add support/submodules/flutter`
+   4. `git checkout 3.7.8`
+   5. `cd ../..`
+   6. `git add submodules/flutter`
 3. Update flutter constraints:
    1. In CI: `.github/workflows/ci.yml`
    2. In pubspec: `pubspec.yaml`

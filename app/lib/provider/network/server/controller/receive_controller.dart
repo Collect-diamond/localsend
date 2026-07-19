@@ -3,6 +3,16 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:collection/collection.dart';
+import 'package:common/api_route_builder.dart';
+import 'package:common/constants.dart';
+import 'package:common/model/dto/info_dto.dart';
+import 'package:common/model/dto/info_register_dto.dart';
+import 'package:common/model/dto/prepare_upload_request_dto.dart';
+import 'package:common/model/dto/prepare_upload_response_dto.dart';
+import 'package:common/model/dto/register_dto.dart';
+import 'package:common/model/file_status.dart';
+import 'package:common/model/file_type.dart';
+import 'package:common/model/session_status.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +23,7 @@ import 'package:localsend_app/pages/home_page.dart';
 import 'package:localsend_app/pages/home_page_controller.dart';
 import 'package:localsend_app/pages/progress_page.dart';
 import 'package:localsend_app/pages/receive_page.dart';
+import 'package:localsend_app/pages/receive_page_controller.dart';
 import 'package:localsend_app/provider/device_info_provider.dart';
 import 'package:localsend_app/provider/favorites_provider.dart';
 import 'package:localsend_app/provider/http_provider.dart';
@@ -20,7 +31,6 @@ import 'package:localsend_app/provider/logging/discovery_logs_provider.dart';
 import 'package:localsend_app/provider/network/nearby_devices_provider.dart';
 import 'package:localsend_app/provider/network/send_provider.dart';
 import 'package:localsend_app/provider/network/server/controller/common.dart';
-import 'package:localsend_app/provider/network/server/server_provider.dart';
 import 'package:localsend_app/provider/network/server/server_utils.dart';
 import 'package:localsend_app/provider/progress_provider.dart';
 import 'package:localsend_app/provider/receive_history_provider.dart';
@@ -33,21 +43,8 @@ import 'package:localsend_app/util/native/platform_check.dart';
 import 'package:localsend_app/util/native/tray_helper.dart';
 import 'package:localsend_app/util/simple_server.dart';
 import 'package:localsend_app/widget/dialogs/open_file_dialog.dart';
-import 'package:localsend_isolates/api_route_builder.dart';
-import 'package:localsend_isolates/constants.dart';
-import 'package:localsend_isolates/model/device.dart';
-import 'package:localsend_isolates/model/dto/info_dto.dart';
-import 'package:localsend_isolates/model/dto/info_register_dto.dart';
-import 'package:localsend_isolates/model/dto/prepare_upload_request_dto.dart';
-import 'package:localsend_isolates/model/dto/prepare_upload_response_dto.dart';
-import 'package:localsend_isolates/model/dto/register_dto.dart';
-import 'package:localsend_isolates/model/file_status.dart';
-import 'package:localsend_isolates/model/file_type.dart';
-import 'package:localsend_isolates/model/session_status.dart';
-import 'package:localsend_isolates/util/rust.dart';
 import 'package:logging/logging.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:refena_flutter/refena_flutter.dart';
 import 'package:routerino/routerino.dart';
 import 'package:uuid/uuid.dart';
 import 'package:window_manager/window_manager.dart';
@@ -167,9 +164,7 @@ class ReceiveController {
     }
 
     // Save device information
-    await server.ref
-        .redux(nearbyDevicesProvider)
-        .dispatchAsync(RegisterDeviceAction(requestDto.toDevice(request.ip, port, https, HttpDiscovery(ip: request.ip))));
+    await server.ref.redux(nearbyDevicesProvider).dispatchAsync(RegisterDeviceAction(requestDto.toDevice(request.ip, port, https)));
     server.ref.notifier(discoveryLoggerProvider).addLog('[DISCOVER/TCP] Received "/register" HTTP request: ${requestDto.alias} (${request.ip})');
 
     final deviceInfo = server.ref.read(deviceInfoProvider);
@@ -234,7 +229,7 @@ class ReceiveController {
         session: ReceiveSessionState(
           sessionId: sessionId,
           status: SessionStatus.waiting,
-          sender: dto.info.toDevice(request.ip, port, https, null),
+          sender: dto.info.toDevice(request.ip, port, https),
           senderAlias: server.ref.read(favoritesProvider).firstWhereOrNull((e) => e.fingerprint == dto.info.fingerprint)?.alias ?? dto.info.alias,
           files: {
             for (final file in dto.files.values)
@@ -281,66 +276,25 @@ class ReceiveController {
       final message = server.getState().session?.message;
       if (message != null) {
         // Message already received
-        await server.ref
-            .redux(receiveHistoryProvider)
-            .dispatchAsync(
-              AddHistoryEntryAction(
-                entryId: const Uuid().v4(),
-                fileName: message,
-                fileType: FileType.text,
-                path: null,
-                savedToGallery: false,
-                isMessage: true,
-                fileSize: utf8.encode(message).length,
-                senderAlias: server.getState().session!.senderAlias,
-                timestamp: DateTime.now().toUtc(),
-              ),
-            );
+        await server.ref.redux(receiveHistoryProvider).dispatchAsync(AddHistoryEntryAction(
+              entryId: const Uuid().v4(),
+              fileName: message,
+              fileType: FileType.text,
+              path: null,
+              savedToGallery: false,
+              isMessage: true,
+              fileSize: message.length,
+              senderAlias: server.getState().session!.senderAlias,
+              timestamp: DateTime.now().toUtc(),
+            ));
+      } else {
+        server.ref.notifier(selectedReceivingFilesProvider).setFiles(server.getState().session!.files.values.map((f) => f.file).toList());
       }
 
-      final receiveProvider = ViewProvider((ref) {
-        final session = ref.watch(serverProvider.select((state) => state?.session));
-        return ReceivePageVm(
-          status: session?.status,
-          sender: session?.sender ?? Device.empty,
-          showSenderInfo: true,
-          files: session?.files.values.map((f) => f.file).toList() ?? [],
-          message: message,
-          onAccept: () async {
-            if (message != null) {
-              // accept nothing
-              ref.notifier(serverProvider).acceptFileRequest({});
-              return;
-            }
-
-            final sessionId = ref.read(serverProvider)?.session?.sessionId;
-            if (sessionId == null) {
-              return;
-            }
-
-            final selectedFiles = ref.read(selectedReceivingFilesProvider);
-            ref.notifier(serverProvider).acceptFileRequest(selectedFiles);
-
-            await Routerino.context.pushAndRemoveUntilImmediately(
-              removeUntil: ReceivePage,
-              builder: () => ProgressPage(
-                showAppBar: false,
-                closeSessionOnClose: true,
-                sessionId: sessionId,
-              ),
-            );
-          },
-          onDecline: () {
-            ref.notifier(serverProvider).declineFileRequest();
-          },
-          onClose: () {
-            ref.notifier(serverProvider).closeSession();
-          },
-        );
-      });
+      server.ref.redux(receivePageControllerProvider).dispatch(InitReceivePageAction());
 
       // ignore: use_build_context_synchronously, unawaited_futures
-      Routerino.context.push(() => ReceivePage(receiveProvider));
+      Routerino.context.push(() => const ReceivePage());
 
       // Delayed response (waiting for user's decision)
       selection = await streamController.stream.first;
@@ -394,13 +348,11 @@ class ReceiveController {
 
     if (quickSave) {
       // ignore: use_build_context_synchronously, unawaited_futures
-      Routerino.context.pushImmediately(
-        () => ProgressPage(
-          showAppBar: false,
-          closeSessionOnClose: true,
-          sessionId: sessionId,
-        ),
-      );
+      Routerino.context.pushImmediately(() => ProgressPage(
+            showAppBar: false,
+            closeSessionOnClose: true,
+            sessionId: sessionId,
+          ));
     }
 
     final files = {
@@ -425,13 +377,11 @@ class ReceiveController {
     }
 
     if (v2) {
-      return await request.respondJson(
-        200,
-        body: PrepareUploadResponseDto(
-          sessionId: sessionId,
-          files: files.cast(),
-        ).toJson(),
-      );
+      return await request.respondJson(200,
+          body: PrepareUploadResponseDto(
+            sessionId: sessionId,
+            files: files.cast(),
+          ).toJson());
     }
 
     return await request.respondJson(200, body: files);
@@ -483,8 +433,7 @@ class ReceiveController {
     server.setState(
       (oldState) => oldState?.copyWith(
         session: receiveState.copyWith(
-          files: {...receiveState.files}
-            ..update(
+          files: {...receiveState.files}..update(
               fileId,
               (_) => receivingFile.copyWith(
                 status: FileStatus.sending,
@@ -496,34 +445,39 @@ class ReceiveController {
       ),
     );
     final fileType = receivingFile.file.fileType;
-    final shouldSaveToGallery = receiveState.saveToGallery && (fileType == FileType.image || fileType == FileType.video);
+    final saveToGallery = receiveState.saveToGallery && (fileType == FileType.image || fileType == FileType.video);
 
-    String? filePath;
-    bool savedToGallery = false;
+    String? outerDestinationPath;
     try {
-      _logger.info('Saving ${receivingFile.file.fileName}');
-
-      (savedToGallery, filePath) = await saveFile(
-        destinationDirectory: receiveState.destinationDirectory,
+      final (destinationPath, documentUri, finalName) = await digestFilePathAndPrepareDirectory(
+        parentDirectory: saveToGallery ? receiveState.cacheDirectory : receiveState.destinationDirectory,
         fileName: receivingFile.desiredName!,
-        saveToGallery: shouldSaveToGallery,
+        createdDirectories: receiveState.createdDirectories,
+      );
+
+      outerDestinationPath = destinationPath;
+
+      _logger.info('Saving ${receivingFile.file.fileName} to $destinationPath');
+
+      await saveFile(
+        destinationPath: destinationPath,
+        documentUri: documentUri,
+        name: finalName,
+        saveToGallery: saveToGallery,
         isImage: fileType == FileType.image,
         stream: request,
+        androidSdkInt: server.ref.read(deviceInfoProvider).androidSdkInt,
+        lastModified: receivingFile.file.metadata?.lastModified,
+        lastAccessed: receivingFile.file.metadata?.lastAccessed,
         onProgress: (savedBytes) {
           if (receivingFile.file.size != 0) {
-            server.ref
-                .notifier(progressProvider)
-                .setProgress(
+            server.ref.notifier(progressProvider).setProgress(
                   sessionId: receiveState.sessionId,
                   fileId: fileId,
                   progress: savedBytes / receivingFile.file.size,
                 );
           }
         },
-        lastModified: receivingFile.file.metadata?.lastModified,
-        lastAccessed: receivingFile.file.metadata?.lastAccessed,
-        androidSdkInt: server.ref.read(deviceInfoProvider).androidSdkInt,
-        createdDirectories: receiveState.createdDirectories,
       );
       if (server.getState().session == null || !allowedStates.contains(server.getState().session!.status)) {
         return await request.respondJson(500, message: 'Server is in invalid state');
@@ -533,29 +487,25 @@ class ReceiveController {
           session: oldState.session?.fileFinished(
             fileId: fileId,
             status: FileStatus.finished,
-            path: filePath,
-            savedToGallery: savedToGallery,
+            path: saveToGallery ? null : destinationPath,
+            savedToGallery: saveToGallery,
             errorMessage: null,
           ),
         ),
       );
 
       // Track it in history
-      await server.ref
-          .redux(receiveHistoryProvider)
-          .dispatchAsync(
-            AddHistoryEntryAction(
-              entryId: fileId,
-              fileName: receivingFile.desiredName!,
-              fileType: receivingFile.file.fileType,
-              path: filePath,
-              savedToGallery: savedToGallery,
-              isMessage: false,
-              fileSize: receivingFile.file.size,
-              senderAlias: receiveState.senderAlias,
-              timestamp: DateTime.now().toUtc(),
-            ),
-          );
+      await server.ref.redux(receiveHistoryProvider).dispatchAsync(AddHistoryEntryAction(
+            entryId: fileId,
+            fileName: receivingFile.desiredName!,
+            fileType: receivingFile.file.fileType,
+            path: saveToGallery ? null : destinationPath,
+            savedToGallery: saveToGallery,
+            isMessage: false,
+            fileSize: receivingFile.file.size,
+            senderAlias: receiveState.senderAlias,
+            timestamp: DateTime.now().toUtc(),
+          ));
 
       _logger.info('Saved ${receivingFile.file.fileName}.');
     } catch (e, st) {
@@ -573,9 +523,7 @@ class ReceiveController {
       _logger.severe('Failed to save file', e, st);
     }
 
-    server.ref
-        .notifier(progressProvider)
-        .setProgress(
+    server.ref.notifier(progressProvider).setProgress(
           sessionId: receiveState.sessionId,
           fileId: fileId,
           progress: 1,
@@ -612,17 +560,16 @@ class ReceiveController {
           closeSession();
           _logger.info('Closing session');
 
-          // ignore: use_build_context_synchronously, discarded_futures
+          // ignore: use_build_context_synchronously
           Routerino.context.pushRootImmediately(() => const HomePage(initialTab: HomeTab.receive, appStart: false));
 
           // open the dialog to open file instantly
-          if (filePath != null && filePath.isNotEmpty) {
-            // ignore: discarded_futures
+          if (outerDestinationPath != null && outerDestinationPath.isNotEmpty) {
             OpenFileDialog.open(
               Routerino.context, // ignore: use_build_context_synchronously
-              filePath: filePath,
+              filePath: outerDestinationPath,
               fileType: fileType,
-              openGallery: savedToGallery,
+              openGallery: saveToGallery,
             );
           }
         });
@@ -705,9 +652,7 @@ class ReceiveController {
         return await request.respondJson(403, message: 'No permission');
       }
 
-      server.ref
-          .notifier(sendProvider)
-          .cancelSessionByReceiver(
+      server.ref.notifier(sendProvider).cancelSessionByReceiver(
             sendState.sessionId,
           );
       return await request.respondJson(200);
@@ -799,18 +744,9 @@ class ReceiveController {
     }
 
     // notify sender
-    final target = session.sender;
     try {
-      server.ref
-          .read(httpProvider)
-          .v2
-          // ignore: unawaited_futures
-          .cancel(
-            protocol: target.getProtocolType(),
-            ip: target.ip!,
-            port: target.port,
-            sessionId: session.sessionId,
-          );
+      // ignore: unawaited_futures
+      server.ref.read(httpProvider).discovery.post(ApiRoute.cancel.target(session.sender, query: {'sessionId': session.sessionId}));
     } catch (e) {
       _logger.warning('Failed to notify sender', e);
     }
@@ -848,14 +784,12 @@ void _cancelBySender(ServerUtils server) {
     Routerino.context.popUntil(ReceivePage);
   }
 
-  server.setState(
-    (oldState) => oldState?.copyWith(
-      session: oldState.session?.copyWith(
-        status: SessionStatus.canceledBySender,
-        endTime: DateTime.now().millisecondsSinceEpoch,
-      ),
-    ),
-  );
+  server.setState((oldState) => oldState?.copyWith(
+        session: oldState.session?.copyWith(
+          status: SessionStatus.canceledBySender,
+          endTime: DateTime.now().millisecondsSinceEpoch,
+        ),
+      ));
 }
 
 extension on ReceiveSessionState {
@@ -867,8 +801,7 @@ extension on ReceiveSessionState {
     required String? errorMessage,
   }) {
     return copyWith(
-      files: {...files}
-        ..update(
+      files: {...files}..update(
           fileId,
           (file) => file.copyWith(
             status: status,

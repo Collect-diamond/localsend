@@ -7,49 +7,48 @@ on:
     branches: [main]
 
 env:
-  FLUTTER_VERSION: "3.41.9"
+  FLUTTER_VERSION: "3.24.5"
 
 jobs:
   format:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
-      - name: Setup Flutter SDK
-        uses: flutter-actions/setup-flutter@v4
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
         with:
-          version: ${{ env.FLUTTER_VERSION }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: "stable"
 
       - name: Dependencies (app)
         working-directory: app
-        run: flutter pub get
-      - name: Dependencies (cargokit - rust_builder)
-        working-directory: packages/localsend_isolates/rust_builder/cargokit/build_tool
         run: flutter pub get
       - name: Remove gen directory (app)
         working-directory: app
         run: rm -rf lib/gen
       - name: Check format (app)
         working-directory: app
-        run: dart format --set-exit-if-changed lib test
+        run: dart format --line-length 150 --set-exit-if-changed lib test
+
+      - name: Dependencies (common)
+        working-directory: common
+        run: dart pub get
+      - name: Check format (common)
+        working-directory: common
+        run: dart format --line-length 150 --set-exit-if-changed lib test
 
   test:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
-      - name: Setup Flutter SDK
-        uses: flutter-actions/setup-flutter@v4
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
         with:
-          version: ${{ env.FLUTTER_VERSION }}
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: "stable"
 
       - name: Dependencies (app)
         working-directory: app
-        run: flutter pub get
-      - name: Dependencies (cargokit - rust_builder)
-        working-directory: packages/localsend_isolates/rust_builder/cargokit/build_tool
         run: flutter pub get
       - name: Analyze (app)
         working-directory: app
@@ -58,11 +57,21 @@ jobs:
         working-directory: app
         run: flutter test
 
+      - name: Dependencies (common)
+        working-directory: common
+        run: dart pub get
+      - name: Analyze (common)
+        working-directory: common
+        run: dart analyze
+      - name: Test (common)
+        working-directory: common
+        run: dart test
+
   packaging:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
       - name: Extract version from pubspec.yaml
         id: pubspec_version
         run: |
@@ -73,7 +82,7 @@ jobs:
       - name: Extract version from Inno Setup configuration
         id: inno_version
         run: |
-          VERSION=$(grep '#define MyAppVersion ' support/scripts/compile_windows_exe-inno.iss | sed 's/#define MyAppVersion "//' | sed 's/"//')
+          VERSION=$(grep '#define MyAppVersion ' scripts/compile_windows_exe-inno.iss | sed 's/#define MyAppVersion "//' | sed 's/"//')
           echo "Inno Setup version is $VERSION"
           echo "inno_version=$VERSION" >> $GITHUB_ENV
 
@@ -85,4 +94,3 @@ jobs:
           else
             echo "Versions match."
           fi
-

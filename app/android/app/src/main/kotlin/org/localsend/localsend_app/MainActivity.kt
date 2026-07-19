@@ -2,13 +2,10 @@ package org.localsend.localsend_app
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.ContentResolver
-import android.content.Context
 import android.content.Intent
 import android.database.Cursor
 import android.net.Uri
 import android.provider.DocumentsContract
-import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -22,18 +19,6 @@ private const val REQUEST_CODE_PICK_FILE = 3
 
 class MainActivity : FlutterActivity() {
     private var pendingResult: MethodChannel.Result? = null
-
-    // Overriding the static methods we need from the Java class, as described
-    // in the documentation of `FlutterActivity.NewEngineIntentBuilder`
-    companion object {
-        fun withNewEngine(): NewEngineIntentBuilder {
-            return NewEngineIntentBuilder(MainActivity::class.java)
-        }
-
-        fun createDefaultIntent(launchContext: Context): Intent {
-            return withNewEngine().build(launchContext)
-        }
-    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -59,8 +44,6 @@ class MainActivity : FlutterActivity() {
 
                 "createDirectory" -> handleCreateDirectory(call, result)
 
-                "getFileDescriptor" -> handleGetFileDescriptor(call, result)
-
                 "openContentUri" -> {
                     openUri(context, call.argument<String>("uri")!!)
                     result.success(null)
@@ -71,49 +54,8 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
-                "isAnimationsEnabled" -> {
-                    result.success(isAnimationsEnabled())
-                }
-
                 else -> result.notImplemented()
             }
-        }
-    }
-
-    private fun isAnimationsEnabled() : Boolean {
-        return Settings.Global.getFloat(this.getContentResolver(),
-            Settings.Global.ANIMATOR_DURATION_SCALE, 1.0f) != 0.0f;
-    }
-
-    private fun handleGetFileDescriptor(call: MethodCall, result: MethodChannel.Result) {
-        val uriString = call.argument<String>("uri")
-        if (uriString == null) {
-            result.error("INVALID_ARGUMENT", "Missing content URI", null)
-            return
-        }
-
-        val uri = Uri.parse(uriString)
-        if (uri.scheme != ContentResolver.SCHEME_CONTENT) {
-            result.error("INVALID_ARGUMENT", "Expected a content:// URI", null)
-            return
-        }
-
-        try {
-            val parcelFileDescriptor = contentResolver.openFileDescriptor(uri, "r")
-            if (parcelFileDescriptor == null) {
-                result.error("OPEN_FAILED", "The content provider did not return a file descriptor", null)
-                return
-            }
-
-            // Ownership of the detached descriptor is transferred to the caller. It must be
-            // closed by Rust (or whichever native consumer receives it) after use.
-            parcelFileDescriptor.use {
-                result.success(it.detachFd())
-            }
-        } catch (e: SecurityException) {
-            result.error("PERMISSION_DENIED", e.message ?: "Permission denied for content URI", null)
-        } catch (e: Exception) {
-            result.error("OPEN_FAILED", e.message ?: "Failed to open content URI", null)
         }
     }
 

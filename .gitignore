@@ -10,6 +10,3 @@
 
 # FVM Version Cache
 .fvm/
-
-# macOS
-.DS_Store
